@@ -86,6 +86,7 @@
     .cover-sub { font-family: var(--serif); font-size: clamp(1.3rem, 1.9vw, 1.7rem); font-weight: 300; font-style: italic; line-height: 1.4; color: var(--text-dim); max-width: 500px; }
     .cover-desc { color: var(--text-dim); font-size: 13px; line-height: 1.8; max-width: 460px; }
     .cover-art { position: relative; aspect-ratio: 1; background: #000; border: 1px solid var(--line); overflow: hidden; max-width: 520px; margin-left: auto; width: 100%; }
+    
     .canvas-slot { position: absolute; inset: 0; overflow: hidden; }
     .canvas-slot canvas {
       display: block !important;
@@ -94,6 +95,7 @@
       width: 100% !important; height: 100% !important;
       max-width: 100% !important; max-height: 100% !important;
     }
+    
     .cover-foot { display: grid; grid-template-columns: repeat(3, 1fr); gap: 40px; padding-top: 32px; border-top: 1px solid var(--line); font-family: var(--mono); font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--text-faint); }
     .cover-foot .k { display: block; color: var(--gold-soft); margin-bottom: 8px; }
     .cover-foot .v { color: var(--text-dim); letter-spacing: 0.1em; line-height: 1.7; }
@@ -708,22 +710,6 @@
 <script>
 // ============================================================
 // COROLLA — GENERATIVE LAYERED PETALS
-//
-// Same seed → many surfaces:
-//   • Cover, Plate, Frame — same seed
-//   • All 4 surfaces (Print, Scarf, Textile, Wall) — same seed
-//   • Archive — 8 unique seeds
-//
-// Rectangular surfaces tile the square composition to fill.
-//
-// Generative engine (preserved from source):
-//   • HSB colour mode, RADIANS
-//   • Base radius 20–42% of canvas
-//   • 5–20 petals, 4–15 layers
-//   • 3 petal styles: smooth (curveVertex+noise),
-//     spiky (vertex+noise), dashed (broken arcs)
-//   • Optional radial gradient, inner pattern,
-//     floating particles, decorative frame
 // ============================================================
 
 const prefix = 'Corolla';
@@ -743,13 +729,9 @@ const BG_NAMES = ['Near Black', 'Cool Dark', 'Warm Dark'];
 
 // ============================================================
 // SKETCH FACTORY
-// tile: { cols, rows } — repeat the square composition N times
 // ============================================================
-function makeSketch({ slotId, seedValue, isMaster, maxFrames, tile }) {
+function makeSketch({ slotId, seedValue, isMaster, maxFrames }) {
   const stopAfter = maxFrames || Infinity;
-  const tileCols = (tile && tile.cols) || 1;
-  const tileRows = (tile && tile.rows) || 1;
-
   let canvasW = 0;
   let canvasH = 0;
   let frameCount = 0;
@@ -786,33 +768,21 @@ function makeSketch({ slotId, seedValue, isMaster, maxFrames, tile }) {
         return;
       }
 
-      const tileW = canvasW / tileCols;
-      const tileH = canvasH / tileRows;
-      const tileSize = Math.min(tileW, tileH);
-
-      for (let ty = 0; ty < tileRows; ty++) {
-        for (let tx = 0; tx < tileCols; tx++) {
-          const ox = tx * tileW + (tileW - tileSize) / 2;
-          const oy = ty * tileH + (tileH - tileSize) / 2;
-
-          p.push();
-          p.translate(ox, oy);
-          drawCorolla(p, tileSize, seedValue);
-          p.pop();
-        }
-      }
-
+      // Directly draw the composition to fill the entire canvas exactly
+      drawCorolla(p, canvasW, canvasH, seedValue, isMaster);
       frameCount++;
     };
   };
 
-  // ---- Draw the corolla into a square of side `size` ----
-  function drawCorolla(p, size, seedValue) {
+  // ---- Draw the corolla to fill the canvas ----
+  function drawCorolla(p, w, h, seedValue, isMasterTile) {
     const sr = new SeededRandom(seedValue);
-    const cs = size;
+    const maxDim = Math.max(w, h);
+    const minDim = Math.min(w, h);
 
     // Base parameters
-    const baseRadius = cs * sr.range(0.2, 0.42);
+    // Use the minimum dimension to scale the corolla so it fits in all formats
+    const baseRadius = minDim * sr.range(0.2, 0.42);
     const petals = Math.floor(sr.range(5, 20));
     const layers = Math.floor(sr.range(4, 15));
 
@@ -834,16 +804,16 @@ function makeSketch({ slotId, seedValue, isMaster, maxFrames, tile }) {
     p.noiseSeed(seedValue);
 
     p.push();
-    p.translate(cs / 2, cs / 2);
+    p.translate(w / 2, h / 2);
 
     // Optional radial gradient
     if (sr.rand() < 0.4) {
-      drawRadialGradient(p, sr, baseRadius, cs);
+      drawRadialGradient(p, sr, baseRadius, maxDim);
     }
 
     // Optional inner pattern
     if (sr.rand() < 0.7) {
-      drawInnerPattern(p, sr, baseRadius, cs);
+      drawInnerPattern(p, sr, baseRadius, maxDim);
     }
 
     // Layers
@@ -852,11 +822,11 @@ function makeSketch({ slotId, seedValue, isMaster, maxFrames, tile }) {
       let strokeWeightValue;
       const weightType = sr.rand();
       if (weightType < 0.3) {
-        strokeWeightValue = cs * sr.range(0.001, 0.002);
+        strokeWeightValue = maxDim * sr.range(0.001, 0.002);
       } else if (weightType < 0.6) {
-        strokeWeightValue = cs * mapRange(l, 0, layers, 0.0008, 0.003);
+        strokeWeightValue = maxDim * mapRange(l, 0, layers, 0.0008, 0.003);
       } else {
-        strokeWeightValue = cs * sr.range(0.0008, 0.004);
+        strokeWeightValue = maxDim * sr.range(0.0008, 0.004);
       }
       p.strokeWeight(strokeWeightValue);
 
@@ -893,17 +863,17 @@ function makeSketch({ slotId, seedValue, isMaster, maxFrames, tile }) {
 
     // Optional floating particles
     if (sr.rand() < 0.4) {
-      drawFloatingParticles(p, sr, petals, baseRadius, cs);
+      drawFloatingParticles(p, sr, petals, baseRadius, maxDim);
     }
 
     // Optional decorative frame
     if (sr.rand() < 0.3) {
-      drawDecorativeFrame(p, sr, cs);
+      drawDecorativeFrame(p, sr, minDim);
     }
 
     p.pop();
 
-    if (isMaster) {
+    if (isMasterTile) {
       features.petals = petals;
       features.layers = layers;
       features.background = bgName;
@@ -999,8 +969,8 @@ function drawDashedPetal(p, sr, layer, layers, petals, baseRadius, noiseScale, w
 }
 
 // ---- Inner pattern ----
-function drawInnerPattern(p, sr, baseRadius, cs) {
-  p.strokeWeight(cs * 0.0008);
+function drawInnerPattern(p, sr, baseRadius, maxDim) {
+  p.strokeWeight(maxDim * 0.0008);
   const innerLayers = Math.floor(sr.range(2, 6));
   const innerRadius = baseRadius * 0.3;
 
@@ -1025,7 +995,7 @@ function drawInnerPattern(p, sr, baseRadius, cs) {
 }
 
 // ---- Floating particles ----
-function drawFloatingParticles(p, sr, petals, baseRadius, cs) {
+function drawFloatingParticles(p, sr, petals, baseRadius, maxDim) {
   const count = petals * 5;
   const maxRadius = baseRadius * 1.1;
 
@@ -1033,7 +1003,7 @@ function drawFloatingParticles(p, sr, petals, baseRadius, cs) {
   for (let i = 0; i < count; i++) {
     const angle = sr.rand() * p.TWO_PI;
     const distance = sr.range(maxRadius * 0.5, maxRadius * 1.2);
-    const sz = cs * sr.range(0.002, 0.008);
+    const sz = maxDim * sr.range(0.002, 0.008);
 
     const x = distance * Math.cos(angle);
     const y = distance * Math.sin(angle);
@@ -1044,11 +1014,11 @@ function drawFloatingParticles(p, sr, petals, baseRadius, cs) {
 }
 
 // ---- Radial gradient ----
-function drawRadialGradient(p, sr, baseRadius, cs) {
+function drawRadialGradient(p, sr, baseRadius, maxDim) {
   const maxRadius = baseRadius * 1.5;
 
   p.noStroke();
-  for (let r = maxRadius; r > 0; r -= cs * 0.004) {
+  for (let r = maxRadius; r > 0; r -= maxDim * 0.004) {
     const alpha = mapRange(r, 0, maxRadius, 0, 30);
     const hue = sr.rand() < 0.5 ? sr.range(200, 300) : sr.range(0, 60);
     p.fill(hue, 20, 10, alpha);
@@ -1057,11 +1027,11 @@ function drawRadialGradient(p, sr, baseRadius, cs) {
 }
 
 // ---- Decorative frame ----
-function drawDecorativeFrame(p, sr, cs) {
-  const margin = cs * 0.02;
-  const frameSize = cs / 2 - margin;
+function drawDecorativeFrame(p, sr, minDim) {
+  const margin = minDim * 0.02;
+  const frameSize = minDim / 2 - margin;
 
-  p.strokeWeight(cs * sr.range(0.0008, 0.003));
+  p.strokeWeight(minDim * sr.range(0.0008, 0.003));
   p.stroke(sr.rand() * 360, 30, 80, 30);
   p.noFill();
 
@@ -1129,10 +1099,10 @@ function attachVisibilityObserver(p5Instance, element) {
   obs.observe(element);
 }
 
-function createLiveP5({ slotId, seedValue, isMaster, maxFrames, tile, onCreated }) {
+function createLiveP5({ slotId, seedValue, isMaster, maxFrames, onCreated }) {
   whenSlotReady(slotId, (slot) => {
     slot.querySelectorAll('canvas').forEach(c => c.remove());
-    const inst = new p5(makeSketch({ slotId, seedValue, isMaster, maxFrames, tile }), slot);
+    const inst = new p5(makeSketch({ slotId, seedValue, isMaster, maxFrames }), slot);
     inst._frozen = false;
     attachVisibilityObserver(inst, slot);
     if (onCreated) onCreated(inst);
@@ -1148,7 +1118,6 @@ function drawPlate() {
     seedValue: seed,
     isMaster: true,
     maxFrames: 2,
-    tile: { cols: 1, rows: 1 },
     onCreated: (inst) => { plateP5 = inst; }
   });
 }
@@ -1162,7 +1131,6 @@ function drawCover() {
     seedValue: seed,
     isMaster: false,
     maxFrames: 2,
-    tile: { cols: 1, rows: 1 },
     onCreated: (inst) => { coverP5 = inst; }
   });
 }
@@ -1176,16 +1144,15 @@ function drawFramedPlate() {
     seedValue: seed,
     isMaster: false,
     maxFrames: 2,
-    tile: { cols: 1, rows: 1 },
     onCreated: (inst) => { frameP5 = inst; }
   });
 }
 
 const surfaceDefs = [
-  { id: 'surfacePrint',   wrapId: 'wrap-surfacePrint',   tile: { cols: 1, rows: 1 } },
-  { id: 'surfaceScarf',   wrapId: 'wrap-surfaceScarf',   tile: { cols: 3, rows: 1 } },
-  { id: 'surfaceTextile', wrapId: 'wrap-surfaceTextile', tile: { cols: 2, rows: 2 } },
-  { id: 'surfaceWall',    wrapId: 'wrap-surfaceWall',    tile: { cols: 1, rows: 2 } }
+  { id: 'surfacePrint',   wrapId: 'wrap-surfacePrint' },
+  { id: 'surfaceScarf',   wrapId: 'wrap-surfaceScarf' },
+  { id: 'surfaceTextile', wrapId: 'wrap-surfaceTextile' },
+  { id: 'surfaceWall',    wrapId: 'wrap-surfaceWall' }
 ];
 
 function drawSurfaces() {
@@ -1214,8 +1181,7 @@ function drawSurfaces() {
           slotId: slot.id || (slot.id = def.id + '-slot'),
           seedValue: seed,
           isMaster: false,
-          maxFrames: 2,
-          tile: def.tile
+          maxFrames: 2
         }),
         slot
       );
@@ -1287,8 +1253,7 @@ function drawArchive() {
           slotId: 'archive-slot-' + i,
           seedValue: archiveSeeds[i],
           isMaster: false,
-          maxFrames: 2,
-          tile: { cols: 1, rows: 1 }
+          maxFrames: 2
         }),
         slot
       );
